@@ -1,0 +1,299 @@
+1.
+
+a) Composition - define which ui show
+Layput - define where to put elements
+Drawing - define where to render
+
+b) 2 steps are measure and place
+
+c) in lazycolumn child elements size depends on parent's
+
+d) Compose is fast due to it changes only changed elements, not all page or elements
+
+2
+
+(a) Order of all measure and place events:
+
+Row measures Image.
+
+Image decides its size (48x48) and returns it.
+
+Row measures Column.
+
+Column measures Text A.
+
+Text A decides its size (100x20) and returns it.
+
+Column measures Text B.
+
+Text B decides its size (80x20) and returns it.
+
+Column calculates its own size (100x40) and returns it to Row.
+
+Row calculates its own size (148x48).
+
+Row places Image and Column.
+
+Column places Text A and Text B.
+
+(b) Final sizes and positions:
+
+Final size of Column: 100 x 40 px (width is max width of children, height is 20 + 20).
+
+Final size of Row: 148 x 48 px (width is 48 + 100, height is max of 48 and 40).
+
+Positions (x, y) relative to Row top-left corner:
+Image: (0, 0)
+Column: (48, 0)
+Text A: (48, 0)
+Text B: (48, 20)
+
+(c) Each node is measured exactly once (single-pass measurement). The lecture stresses this because if nodes were measured twice at each level of the tree, the traversal time would grow exponentially (O(2^n)), leading to severe UI lag and performance bottlenecks.
+
+(d) This tree was produced during the Composition phase. Each node contains a composable element along with its assigned properties and modifiers.
+
+3.
+
+
+(a) Snippets 1 and 2 are fully equivalent. In both cases, the state read happens when the state value is used (passed into Modifier.padding), not when it is created.
+
+(b) For Text A, offsetX is read in the Layout phase (inside the placement lambda). When offsetX changes, only the Layout phase re-runs. For Text B, offsetX is read in the Composition phase (when computing offsetPx). When offsetX changes, full recomposition is triggered.
+
+(c) A restart scope is a block of code that Compose can re-execute independently when a snapshot state read inside it changes. For a read made directly within the body of a composable function, the entire composable function serves as the restart scope.
+
+
+4.
+
+Log order for the first frame:
+
+    LectureTree: composition
+
+    Row: layout/measure
+
+    Image: layout/measure
+
+    Column: layout/measure
+
+    Text A: layout/measure
+
+    Text B: layout/measure
+
+    Row: layout/place
+
+    Image: layout/place
+
+    Column: layout/place
+
+    Text A: layout/place
+
+    Text B: layout/place
+
+    Row: draw
+
+    Image: draw
+
+    Column: draw
+
+    Text A: draw
+
+    Text B: draw
+
+Does it match Question 2 trace?
+Yes, the measurement order matches the depth-first tree traversal described in Question 2.
+
+When rotating the emulator:
+All phases (composition, layout/measure, layout/place, draw) run again because configuration changes recreate the Activity, causing Compose to rebuild the entire UI tree from scratch.
+
+5.
+
+Prediction before tapping Toggle padding:
+All four phases (composition, layout/measure, layout/place, draw) will appear after tapping because padding value is read during modifier construction in the composition phase.
+
+Log outcome after tapping:
+PaddingDemo: composition
+padding demo: layout/measure
+padding demo: layout/place
+padding demo: draw
+
+Difference between prediction and log:
+There is no difference. Since padding is read as the modifier chain is built during composition, changing it triggers recomposition, followed by layout (measure and place) and drawing phases.
+
+6.
+
+Prediction for lambda offset:
+Only layout/place and draw phases will appear in Logcat. Composition and layout/measure will be skipped because offsetX is read inside the placement lambda of the layout phase.
+
+Log outcome after tapping Move:offset demo:
+layout/placeoffset demo: drawDoes a composition line appear?
+No, composition line does not appear.   Log outcome after tapping Move:offset demo:
+
+Does layout/measure appear?
+No, layout/measure does not appear because changing offset only changes the element position, not its measurement constraints.
+Experiment (moving read above Text):
+When offsetPx is calculated outside the lambda (above Text), tapping Move causes composition, layout/measure, layout/place, and draw to run again. This happens because offsetX is now read during the composition phase, forcing recomposition of the entire block.
+
+
+7.
+
+Prediction for Canvas:
+Only the draw phase will run when tapping Change color. Composition and layout phases will be skipped because the color state is read directly inside the draw lambda of Canvas.
+
+Log outcome for Canvas:color demo
+
+drawPhases appearing after replacing Canvas with Box:
+ColorDemo: compositioncolor
+demo: layout/measurecolor
+demo: layout/placecolor demo: draw
+
+What the difference tells you:
+The difference shows that where a state is created does not dictate which phases run. What matters is where the state is actually read. In Canvas, state is read during the drawing phase, so only drawing re-runs. In Box with background modifier, the state is read while constructing the modifier in composition, triggering all phases.
+
+8.
+
+(a) Modifier.padding(p)
+Phase state is read in: Composition
+When p changes:
+
+    Composition: runs
+
+    Layout: runs
+
+    Drawing: runs
+
+(b) Modifier.offset { IntOffset(p, 0) }
+Phase state is read in: Layout (placement step)
+When p changes:
+
+    Composition: skipped
+
+    Layout: runs
+
+    Drawing: runs
+
+(c) Modifier.offset(p)
+Phase state is read in: Composition
+When p changes:
+
+    Composition: runs
+
+    Layout: runs
+
+    Drawing: runs
+
+(d) Canvas(Modifier.size(50.dp)) { drawRect(c) }
+Phase state is read in: Drawing
+When c changes:
+
+    Composition: skipped
+
+    Layout: skipped
+
+    Drawing: runs
+
+(e) Layout(content) { m, cs -> /* uses s */ }
+Phase state is read in: Layout (measurement step)
+When s changes:
+
+    Composition: skipped
+
+    Layout: runs
+
+    Drawing: runs
+
+(f) Modifier.drawWithContent { /* uses c */ }
+Phase state is read in: Drawing
+When c changes:
+
+    Composition: skipped
+
+    Layout: skipped
+
+    Drawing: runs
+
+Choice for an animation value changing on every frame:
+I would choose (b), (d), or (f) depending on what is being animated. For position animations, (b) is best; for color or visual effect animations, (d) or (f) is best.
+
+Reason:
+These options defer the state read to the Layout or Drawing phase, completely skipping the Composition phase. Executing full recomposition on every frame of a 60/120 FPS animation wastes CPU resources and causes dropped frames, whereas reading state during Layout or Drawing ensures high performance.
+
+
+9.
+
+Phases triggered by the slow version on each scroll event:
+The slow version triggers Composition, Layout (measure and place), and Drawing phases on every scroll event because firstVisibleItemScrollOffset is read while constructing the modifier.
+
+Phases triggered by the fast version on each scroll event:
+The fast version triggers only the Layout (placement step) and Drawing phases on each scroll event, completely skipping Composition and Layout measurement because state reading is deferred inside the offset lambda.
+
+Summary sentence:
+On each scroll event, the slow version triggers Composition, Layout, and Drawing phases, whereas the fast version triggers only Layout placement and Drawing phases, skipping Composition entirely.
+
+10.
+
+Comparison of composition counts:
+In ScrollToTopNaive, scrolling through items triggers dozens of recompositions because firstVisibleItemIndex changes frequently with every new item that scrolls into view. In the derivedStateOf version, recomposition is triggered only when the boolean result actually changes from false to true or true to false.
+
+Why the difference is so large:
+The difference is huge because listState.firstVisibleItemIndex changes constantly during scrolling, forcing ScrollToTopNaive to recompose on almost every item. derivedStateOf buffers these frequent updates and notifies Compose only when the calculated boolean threshold (firstVisibleItemIndex > 0) changes state, preventing unnecessary recompositions.
+
+Action implementation:
+Implemented smooth scrolling back to item 0 by wrapping listState.animateScrollToItem(0) inside a coroutine launched with rememberCoroutineScope.
+
+11.
+
+(1) Predictions and composition counts for value version:
+When tapping Add 3 times:
+Parent: composition (3 times)
+Child: composition (3 times)
+Sibling: composition (0 times / skipped)
+
+(2) Predictions and composition counts for lambda version:
+When tapping Add 3 times:
+Parent: composition (0 times / skipped after initial frame)
+Child: composition (3 times)
+Sibling: composition (0 times / skipped)
+
+(3) Explanation why Parent no longer recomposes:
+In the lambda version, Parent creates a lambda without reading the count state value directly during its own composition scope. The state read is deferred until Child calls count(), making Child's composition function the actual restart scope for that state read.
+
+12.
+
+Description of Frame 1 and Frame 2:
+In Frame 1, composition reads imageHeightPx with its initial value of 0, setting the text top padding to 0 dp. During the layout phase of Frame 1, onSizeChanged measures the image height as 360 px, updates imageHeightPx to 360, and schedules a new recomposition. When Frame 1 is drawn, the text appears overlapping the image. In Frame 2, composition reads imageHeightPx as 360 px, updating text top padding to 360 px. When Frame 2 is drawn, the text correctly appears below the image.
+
+(a) Why toDp() conversion is a warning sign:
+Converting pixel values obtained from layout back to Dp during composition is a warning sign because it indicates that layout measurement output is being fed directly into composition input, creating a dependency across frames.
+
+(b) Three-step pattern to be careful of:
+
+    Reading a state in Composition to set layout properties.
+
+    Writing to that state inside the Layout phase (such as inside onSizeChanged or layout modifiers).
+
+    Triggering a recomposition that re-runs step 1 with the updated state.
+
+(c) Principle broken:
+This code breaks the Unidirectional Data Flow principle, as data flows backwards from the Layout phase back into the Composition phase.
+
+13.
+
+Log analysis for CyclicDemo:
+In CyclicDemo, two compositions occur on initial launch. Composition #1 runs with imageHeightPx=0. Then onSizeChanged reports height=360 (or equivalent px height for 120 dp), updating imageHeightPx and triggering composition #2 with imageHeightPx=360.
+
+Log analysis for CyclicFixed:
+In CyclicFixed, only one composition occurs (fixed: composition #1).
+
+Single source of truth in fixed version:
+The Column layout node acts as the single source of truth in the fixed version. It measures the image child first, determines its height, and automatically places the text right below it in a single pass without storing state or triggering recomposition.
+
+14.
+
+Log analysis for StackBelow:
+Before each "place children" log line, exactly two "measure child" log lines appear (one for the Box and one for the Text).
+
+What it shows about the "one pass" rule:
+This demonstrates that each child node is measured exactly once before placement begins, perfectly adhering to the single-pass measurement rule of Jetpack Compose.
+
+Count change after adding a third child:
+When a third child is added to the content block, three "measure child" log lines appear before the single "place children" log line.
+
